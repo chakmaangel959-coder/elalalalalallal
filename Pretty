@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Happy Birthday Eela — Victorian 3D Cake</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
+
+  <style>
+    body, html {
+      margin: 0;
+      height: 100%;
+      background: #1a0f0e;
+      font-family: "Playfair Display", serif;
+      color: white;
+      overflow: hidden;
+    }
+
+    #overlayText {
+      position: fixed;
+      left: 50%;
+      top: 30px;
+      transform: translateX(-50%);
+      text-align: center;
+      z-index: 30;
+      pointer-events: none;
+    }
+
+    #overlayText h1 {
+      font-family: 'Great Vibes', cursive;
+      font-size: 50px;
+      margin: 0;
+      color: #ffdce9;
+    }
+
+    #ui {
+      position: fixed;
+      left: 20px;
+      top: 20px;
+      z-index: 40;
+      padding: 12px;
+      background: rgba(0,0,0,0.25);
+      border-radius: 10px;
+      backdrop-filter: blur(4px);
+    }
+
+    .btn {
+      display: block;
+      width: 120px;
+      margin: 6px 0;
+      padding: 8px;
+      border: none;
+      border-radius: 8px;
+      background: #ff9cc9;
+      color: #3c0a25;
+      font-weight: bold;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="overlayText">
+    <h1>Happy Birthday Eela</h1>
+    <p style="opacity:.8;font-size:14px;">Tap to interact • Blow to extinguish candles</p>
+  </div>
+
+  <div id="ui">
+    <button class="btn" id="blowBtn">Blow Candle</button>
+    <button class="btn" id="cutBtn">Cut Cake</button>
+    <button class="btn" id="resetBtn">Reset</button>
+    <p style="font-size:12px;color:#ffdce9;">Mic: <span id="micStatus">loading…</span></p>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+    /* ---------------------------------------------------------
+       BASIC THREE.JS SETUP
+    --------------------------------------------------------- */
+    let scene = new THREE.Scene();
+    let camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 2000);
+    camera.position.set(0, 120, 420);
+
+    let renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    let controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    let ambient = new THREE.AmbientLight(0xffffff, 0.35);
+    scene.add(ambient);
+
+    let spot = new THREE.PointLight(0xffe6cc, 1.1, 1200, 2);
+    spot.position.set(180, 260, 250);
+    scene.add(spot);
+
+    /* ---------------------------------------------------------
+       CAKE GROUP
+    --------------------------------------------------------- */
+    let cakeGroup = new THREE.Group();
+    scene.add(cakeGroup);
+
+    buildCake();
+
+
+    function buildCake() {
+      // Plate
+      let plate = new THREE.Mesh(
+        new THREE.CylinderGeometry(150, 150, 8, 64),
+        new THREE.MeshStandardMaterial({ color: 0xfff7f0 })
+      );
+      plate.position.y = -20;
+      plate.rotation.x = Math.PI / 2;
+      cakeGroup.add(plate);
+
+      // Cake base
+      let y = 0;
+      let heights = [48, 44, 44];
+      for (let h of heights) {
+        let layer = new THREE.Mesh(
+          new THREE.CylinderGeometry(90, 90, h, 64),
+          new THREE.MeshStandardMaterial({ color: 0x3a1e1a })
+        );
+        layer.position.y = y + h / 2;
+        cakeGroup.add(layer);
+        y += h;
+      }
+
+      // Candle
+      let candle = new THREE.Mesh(
+        new THREE.CylinderGeometry(4, 4, 36, 12),
+        new THREE.MeshStandardMaterial({ color: 0xffffff })
+      );
+      candle.position.y = y + 30;
+      cakeGroup.add(candle);
+
+      // Flame
+      flame = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xffbb55 }));
+      flame.scale.set(20, 40, 1);
+      flame.position.y = y + 50;
+      cakeGroup.add(flame);
+    }
+
+    /* ---------------------------------------------------------
+       BLOW OUT DETECTION (MIC)
+    --------------------------------------------------------- */
+    let micStatus = document.getElementById("micStatus");
+    let analyser, dataArray, audioCtx;
+    let flame;
+
+    startMic();
+
+    async function startMic() {
+      try {
+        let stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new AudioContext();
+        let source = audioCtx.createMediaStreamSource(stream);
+
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        dataArray = new Uint8Array(analyser.fftSize);
+
+        source.connect(analyser);
+        micStatus.textContent = "active";
+
+        checkBlow();
+      } catch (err) {
+        micStatus.textContent = "blocked";
+      }
+    }
+
+    function checkBlow() {
+      requestAnimationFrame(checkBlow);
+      if (!analyser) return;
+
+      analyser.getByteTimeDomainData(dataArray);
+
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        let v = (dataArray[i] - 128) / 128;
+        sum += v * v;
+      }
+      let rms = Math.sqrt(sum / dataArray.length);
+
+      if (rms > 0.22 && flame.visible) {
+        extinguish();
+      }
+    }
+
+    /* ---------------------------------------------------------
+       BUTTONS
+    --------------------------------------------------------- */
+    document.getElementById("blowBtn").onclick = () => extinguish();
+    document.getElementById("cutBtn").onclick = () => alert("Cut animation coming soon!");
+    document.getElementById("resetBtn").onclick = () => {
+      flame.visible = true;
+    };
+
+    function extinguish() {
+      flame.visible = false;
+    }
+
+    /* ---------------------------------------------------------
+       ANIMATION LOOP
+    --------------------------------------------------------- */
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.onresize = () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    };
+  </script>
+</body>
+</html>
